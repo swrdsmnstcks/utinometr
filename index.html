@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Утиномер</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik+Mono+One&family=Golos+Text:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one column "лабораторный прибор" — шапка, выбор формулы, ползунки, табло с вердиктом и шкалой 0–11 */
+:root{
+  --bg:#e8f0ef;        /* вода пруда */
+  --panel:#ffffff;
+  --fg:#12302c;        /* селезень, тёмный */
+  --muted:#5b7471;
+  --line:#c9d8d6;
+  --head:#0f6b5c;      /* зелёная голова селезня */
+  --bill:#f2a311;      /* клюв */
+  --bill-ink:#3a2500;
+  --track:#d6e3e1;
+  --display:"Rubik Mono One","Arial Black",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0b1a19;--panel:#132826;--fg:#e3efec;--muted:#93aaa6;--line:#24403c;
+  --head:#3fc3a8;--bill:#ffb22e;--bill-ink:#2a1a00;--track:#1e3633;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0b1a19;--panel:#132826;--fg:#e3efec;--muted:#93aaa6;--line:#24403c;
+  --head:#3fc3a8;--bill:#ffb22e;--bill-ink:#2a1a00;--track:#1e3633;color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 48px}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+
+header{display:flex;flex-direction:column;gap:6px}
+h1{font-family:var(--display);font-weight:400;font-size:clamp(34px,8vw,56px);line-height:1;margin:0;letter-spacing:-.01em;color:var(--head);text-wrap:balance}
+h1 span{color:var(--bill)}
+.sub{color:var(--muted);margin:0;max-width:60ch}
+
+.label{font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+
+.formulas{display:flex;flex-wrap:wrap;gap:8px}
+.formulas button{font:500 15px var(--body);color:var(--fg);background:transparent;border:1.5px solid var(--line);border-radius:999px;padding:7px 14px;cursor:pointer}
+.formulas button:hover{border-color:var(--head)}
+.formulas button[aria-pressed="true"]{background:var(--head);border-color:var(--head);color:var(--bg)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--bill);outline-offset:2px}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:18px}
+.tex{font-family:var(--mono);font-size:14px;color:var(--muted);overflow-x:auto;white-space:nowrap;padding-bottom:2px}
+.tex b{color:var(--fg);font-weight:600}
+
+.who{display:flex;flex-direction:column;gap:6px}
+.who input{font:500 17px var(--body);color:var(--fg);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
+
+.sliders{display:flex;flex-direction:column;gap:16px}
+.row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:baseline}
+.row .name{font-weight:500}
+.row .hint{grid-column:1/-1;font-size:13px;color:var(--muted);margin-top:-2px}
+.row output{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;min-width:3ch;text-align:right}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--head);height:28px;margin:0}
+
+.board{background:var(--head);color:var(--bg);border-radius:14px;padding:22px 20px;display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:center}
+.face{font-size:64px;line-height:1;grid-row:1/3}
+.score{font-family:var(--display);font-size:clamp(40px,10vw,64px);line-height:1;font-variant-numeric:tabular-nums}
+.score small{font-size:.4em;opacity:.75}
+.verdict{font-weight:700;font-size:18px;min-width:0}
+.rank{grid-column:1/-1;margin-top:8px;display:inline-flex;justify-self:start;align-items:center;gap:8px;background:var(--bill);color:var(--bill-ink);font-weight:700;border-radius:999px;padding:5px 14px 5px 12px;font-size:15px}
+.rank[hidden]{display:none!important}
+
+.scale{position:relative;height:46px;margin-top:4px}
+.scale .bar{position:absolute;left:0;right:0;top:8px;height:10px;border-radius:5px;
+  background:linear-gradient(90deg,var(--track) 0%,var(--track) 81.8%,var(--bill) 81.8%,var(--bill) 100%)}
+.scale .fill{position:absolute;left:0;top:8px;height:10px;border-radius:5px;background:var(--head);transition:width .25s}
+.scale .tick{position:absolute;top:24px;font:12px var(--mono);color:var(--muted);transform:translateX(-50%)}
+.scale .mark{position:absolute;top:0;width:4px;height:26px;margin-left:-2px;border-radius:2px;background:var(--fg);transition:left .25s}
+.scale-cap{font-size:13px;color:var(--muted)}
+
+.math{font-family:var(--mono);font-size:13px;color:var(--muted);overflow-x:auto;white-space:nowrap}
+
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+.btn{font:600 15px var(--body);border-radius:10px;padding:10px 16px;cursor:pointer;border:1.5px solid var(--head);background:transparent;color:var(--head)}
+.btn.main{background:var(--bill);border-color:var(--bill);color:var(--bill-ink)}
+.toast{font-size:14px;color:var(--head);align-self:center}
+
+table{width:100%;border-collapse:collapse;font-size:15px}
+td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:top}
+td:first-child{width:3.2em;font-size:20px}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;width:5.5em;color:var(--muted)}
+tr.on td{background:color-mix(in srgb,var(--bill) 22%,transparent)}
+.tablewrap{overflow-x:auto}
+
+@media (max-width:440px){.face{font-size:48px}.board{gap:4px 14px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Telegram: тема из клиента перекрывает свою */
+html.tg{--bg:var(--tg-theme-bg-color);--fg:var(--tg-theme-text-color);--muted:var(--tg-theme-hint-color);
+  --panel:var(--tg-theme-secondary-bg-color,var(--tg-theme-bg-color));--head:var(--tg-theme-button-color);}
+html.tg .board{color:var(--tg-theme-button-text-color,#fff)}
+html.tg .formulas button[aria-pressed="true"]{color:var(--tg-theme-button-text-color,#fff)}
+html.tg #copy{display:none}
+body{margin:0;-webkit-tap-highlight-color:transparent}
+input[type=range]{touch-action:pan-y}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Утино<span>мер</span></h1>
+    <p class="sub">Измеряет ебло утиное по четырём формулам. Двигай ползунки, прибор сам скажет, Крякыч или нет.</p>
+  </header>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div class="label">Формула</div>
+    <div class="formulas" id="formulas" role="group" aria-label="Формула"></div>
+  </section>
+
+  <section class="panel">
+    <div class="tex" id="tex"></div>
+    <div class="who">
+      <label class="label" for="who">Кого меряем</label>
+      <input id="who" type="text" placeholder="Например, Вован с работы" maxlength="40" autocomplete="off">
+    </div>
+    <div class="sliders" id="sliders"></div>
+  </section>
+
+  <section class="board" aria-live="polite">
+    <div class="face" id="face">🦆</div>
+    <div class="score" id="score">0<small>/10</small></div>
+    <div class="verdict" id="verdict"></div>
+    <div class="rank" id="rank" hidden></div>
+  </section>
+
+  <div>
+    <div class="scale" aria-hidden="true">
+      <div class="bar"></div><div class="fill" id="fill"></div><div class="mark" id="mark"></div>
+      <span class="tick" style="left:0%">0</span>
+      <span class="tick" style="left:45.45%">5</span>
+      <span class="tick" style="left:81.82%">9</span>
+      <span class="tick" style="left:90.9%">10</span>
+      <span class="tick" style="left:100%">11</span>
+    </div>
+    <div class="scale-cap">Жёлтая зона после 9 — территория Крякычей.</div>
+  </div>
+
+  <div class="math" id="math"></div>
+
+  <div class="actions">
+    <button class="btn main" id="rand" type="button">Случайное ебло</button>
+    <button class="btn" id="copy" type="button">Скопировать результат</button>
+    <span class="toast" id="toast" role="status"></span>
+  </div>
+
+  <section style="display:flex;flex-direction:column;gap:8px">
+    <div class="label">Шкала утиности</div>
+    <div class="tablewrap"><table id="table"></table></div>
+  </section>
+</div>
+
+<script>
+const LEVELS=[
+  {min:11,face:"🗿🦆",text:"Запредельная утиность"},
+  {min:10,face:"🦆",text:"Эталон, оригинал"},
+  {min:9, face:"😭",text:"Хлеб закончился"},
+  {min:8, face:"😑",text:"Утка после смены"},
+  {min:7, face:"🤨",text:"Кто спиздил батон?"},
+  {min:6, face:"😏",text:"Знает, где хлеб"},
+  {min:5, face:"🤡",text:"Утка на корпоративе"},
+  {min:4, face:"🗿",text:"Каменное ебало"},
+  {min:2, face:"😐",text:"Пока не крякнул"},
+  {min:0, face:"🙂",text:"Просто человек. Пока что"}
+];
+
+const F={
+  folk:{name:"Народная",
+    tex:"E = <b>(губы + взгляд + батон) / 3</b> × (1 − самоуважение / 20)",
+    p:[["lips","Губы",0,10,1,6,"0 — обычный рот, 10 — клюв"],
+       ["look","Взгляд",0,10,1,8,"Тупой и сосредоточенный одновременно"],
+       ["bread","Любовь к батону",0,10,1,9,"10 — за хлебом в любую погоду"],
+       ["self","Самоуважение",0,10,1,3,"Чем меньше, тем легче крякнуть"]],
+    calc:v=>{const a=(v.lips+v.look+v.bread)/3,k=1-v.self/20;
+      return{e:a*k,m:`(${v.lips} + ${v.look} + ${v.bread}) / 3 × (1 − ${v.self}/20) = ${fmt(a)} × ${fmt(k)}`}}},
+  test:{name:"Утиный тест",
+    tex:"E = 10 × <b>выглядит/10 × плавает/10 × крякает/10</b>",
+    p:[["looks","Выглядит как утка",0,10,1,8,"Шея, походка, общий силуэт"],
+       ["swims","Плавает как утка",0,10,1,5,"В бассейне держится на поверхности и не тонет"],
+       ["quacks","Крякает как утка",0,10,1,7,"Смех, «ну чё», чих — всё считается"]],
+    calc:v=>({e:10*v.looks/10*v.swims/10*v.quacks/10,m:`10 × ${v.looks/10} × ${v.swims/10} × ${v.quacks/10}`})},
+  bread:{name:"Батонозависимая",
+    tex:"E = min(10; <b>губы + батоны в неделю / 2</b>)",
+    p:[["lips","Губы",0,10,1,4,"0 — обычный рот, 10 — клюв"],
+       ["loaves","Батонов в неделю",0,30,1,8,"Хлебные палочки и сухари считаются за полбатона"]],
+    calc:v=>({e:Math.min(10,v.lips+v.loaves/2),m:`min(10; ${v.lips} + ${v.loaves}/2)`})},
+  sci:{name:"Научная",
+    tex:"E = 10 × (1 − e<sup>−кря/5</sup>)",
+    p:[["kr","Кря за вечер",0,40,1,5,"Сколько раз сказал «ну чё» утиной интонацией"]],
+    calc:v=>({e:10*(1-Math.exp(-v.kr/5)),m:`10 × (1 − e^(−${v.kr}/5))`})},
+  orig:{name:"Оригинальная (ломает шкалу)",
+    tex:"E = <b>(губы + взгляд + батон) / самоуважение</b> × 10",
+    p:[["lips","Губы",0,10,1,6,"0 — обычный рот, 10 — клюв"],
+       ["look","Взгляд",0,10,1,8,"Тупой и сосредоточенный одновременно"],
+       ["bread","Любовь к батону",0,10,1,9,"10 — за хлебом в любую погоду"],
+       ["self","Самоуважение",1,10,1,3,"От 1, на ноль не делим"]],
+    calc:v=>({e:(v.lips+v.look+v.bread)/v.self*10,m:`(${v.lips} + ${v.look} + ${v.bread}) / ${v.self} × 10`})}
+};
+
+const $=id=>document.getElementById(id);
+const fmt=n=>(Math.round(n*100)/100).toString().replace(".",",");
+let cur="folk",vals={};
+
+function store(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+function load(k){try{return localStorage.getItem(k)}catch(e){return null}}
+
+function renderFormulas(){
+  $("formulas").innerHTML="";
+  for(const [k,f] of Object.entries(F)){
+    const b=document.createElement("button");b.type="button";b.id="f-"+k;b.textContent=f.name;
+    b.setAttribute("aria-pressed",k===cur);b.onclick=()=>{cur=k;store("utino-f",k);renderFormulas();renderSliders();update()};
+    $("formulas").appendChild(b);
+  }
+}
+function renderSliders(){
+  const f=F[cur];$("tex").innerHTML=f.tex;$("sliders").innerHTML="";
+  for(const [key,name,min,max,step,def,hint] of f.p){
+    const id=cur+"-"+key; if(vals[id]===undefined) vals[id]=def;
+    const r=document.createElement("div");r.className="row";
+    r.innerHTML=`<label class="name" for="${id}">${name}</label><output id="${id}-o">${vals[id]}</output>
+      <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${vals[id]}">
+      <div class="hint">${hint}</div>`;
+    r.querySelector("input").addEventListener("input",e=>{vals[id]=+e.target.value;$(id+"-o").textContent=e.target.value;haptic();update()});
+    $("sliders").appendChild(r);
+  }
+}
+function current(){
+  const f=F[cur],v={};for(const [key] of f.p) v[key]=vals[cur+"-"+key];
+  return f.calc(v);
+}
+function level(e){return LEVELS.find(l=>e>=l.min)}
+function update(){
+  const {e,m}=current(),L=level(e);
+  const who=$("who").value.trim();
+  $("face").textContent=L.face;
+  $("score").innerHTML=`${fmt(e)}<small>/10</small>`;
+  $("verdict").textContent=(who?who+": ":"")+L.text;
+  const r=$("rank");
+  if(e>10.999){r.hidden=false;r.textContent="Звание: Крякыч Первозванный"}
+  else if(e>9){r.hidden=false;r.textContent="Звание: Крякыч"}
+  else r.hidden=true;
+  const pct=Math.min(e,11)/11*100;
+  $("fill").style.width=pct+"%";$("mark").style.left=pct+"%";
+  $("math").textContent=`${m} = ${fmt(e)}`+(e>11?"  (шкала пробита)":"");
+  document.querySelectorAll("#table tr").forEach(tr=>tr.classList.toggle("on",tr.dataset.min==L.min));
+}
+function renderTable(){
+  const rows=[...LEVELS].reverse().map((l,i,a)=>{
+    const next=a[i+1];const range=next?`${l.min}–${next.min}`:`${l.min}+`;
+    return `<tr data-min="${l.min}"><td>${l.face}</td><td class="n">${range}</td><td>${l.text}</td></tr>`}).join("");
+  $("table").innerHTML=rows;
+}
+$("who").addEventListener("input",()=>{store("utino-who",$("who").value);update()});
+$("rand").onclick=()=>{
+  for(const [key,,min,max] of F[cur].p) vals[cur+"-"+key]=min+Math.floor(Math.random()*(max-min+1));
+  renderSliders();update();
+};
+$("copy").onclick=()=>{
+  const {e}=current(),L=level(e),who=$("who").value.trim()||"Испытуемый";
+  const rank=e>10.999?" Звание: Крякыч Первозванный.":e>9?" Звание: Крякыч.":"";
+  const text=`${who}: утиность ${fmt(e)}/10 ${L.face} — ${L.text}.${rank} Формула: ${F[cur].name}.`;
+  const done=msg=>{$("toast").textContent=msg;setTimeout(()=>$("toast").textContent="",2200)};
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>done("Скопировано"),()=>{$("math").textContent=text;done("Выдели текст выше и скопируй вручную")});
+  }else{$("math").textContent=text;done("Выдели текст выше и скопируй вручную")}
+};
+
+const tg=window.Telegram&&Telegram.WebApp&&Telegram.WebApp.initData!==undefined&&Telegram.WebApp.platform!=="unknown"?Telegram.WebApp:null;
+function haptic(){try{tg&&tg.HapticFeedback.selectionChanged()}catch(e){}}
+function shareText(){
+  const {e}=current(),L=level(e),who=$("who").value.trim()||"Испытуемый";
+  const rank=e>10.999?" Звание: Крякыч Первозванный.":e>9?" Звание: Крякыч.":"";
+  return `${who}: утиность ${fmt(e)}/10 ${L.face} — ${L.text}.${rank} Формула: ${F[cur].name}.`;
+}
+if(tg){
+  document.documentElement.classList.add("tg");
+  tg.ready();tg.expand();
+  try{tg.disableVerticalSwipes()}catch(e){}
+  try{tg.setHeaderColor("bg_color");tg.setBackgroundColor("bg_color")}catch(e){}
+  tg.MainButton.setText("Отправить результат в чат");
+  tg.MainButton.show();
+  tg.MainButton.onClick(()=>{
+    try{tg.HapticFeedback.notificationOccurred("success")}catch(e){}
+    tg.openTelegramLink("https://t.me/share/url?url="+encodeURIComponent(location.href.split("#")[0])+"&text="+encodeURIComponent(shareText()));
+  });
+  $("rand").addEventListener("click",()=>{try{tg.HapticFeedback.impactOccurred("medium")}catch(e){}});
+}
+const sf=load("utino-f");if(sf&&F[sf])cur=sf;
+const sw=load("utino-who");if(sw)$("who").value=sw;
+renderFormulas();renderSliders();renderTable();update();
+</script>
+</body>
+</html>
